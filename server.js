@@ -10,6 +10,7 @@ const attemptRoutes = require('./routes/attempts');
 const app = express();
 
 app.use(express.json());
+app.use(express.text({ type: 'text/plain' })); // for navigator.sendBeacon()
 app.use(cors());
 
 // Connect to MongoDB
@@ -21,11 +22,17 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/knowledge
 app.use('/api/auth', authRoutes);
 app.use('/api/quizzes', quizRoutes);
 app.use('/api/attempts', attemptRoutes);
-const subjectQuizRoutes = require('./routes/subjectQuiz');
+const subjectQuizRoutes  = require('./routes/subjectQuiz');
 app.use('/api', subjectQuizRoutes);
 
-const adminStatsRoutes = require('./routes/adminStats');
+const adminStatsRoutes   = require('./routes/adminStats');
 app.use('/api/admin', adminStatsRoutes);
+
+const certificateRoutes  = require('./routes/certificates');
+app.use('/api/certificates', certificateRoutes);
+
+const reportRoutes       = require('./routes/reports');
+app.use('/api/reports', reportRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

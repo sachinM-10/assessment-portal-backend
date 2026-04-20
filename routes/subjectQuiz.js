@@ -30,48 +30,145 @@ router.post('/seed', async (req, res) => {
 });
 
 
-// GET /student/quizzes/:subject → fetch questions for a subject (Randomized, limit 10)
+// POST /student/start-attempt → register that user has entered the quiz (IN_PROGRESS)
+router.post('/student/start-attempt', [auth, student], async (req, res) => {
+  try {
+    const { subject, bank } = req.body;
+    const attempt = new SubjectAttempt({
+      userId:    req.user._id,
+      subject,
+      bank,
+      score:     0,
+      total:     0,
+      status:    'IN_PROGRESS',
+      startTime: new Date(),
+    });
+    await attempt.save();
+    res.json({ attemptId: attempt._id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /student/auto-submit → beacon-compatible, saves answers on exit
+// Accepts both JSON (fetch) and text/plain (sendBeacon)
+router.post('/student/auto-submit', [auth, student], async (req, res) => {
+  try {
+    let payload = req.body;
+    // sendBeacon sends as text/plain — parse manually
+    if (typeof payload === 'string') {
+      try { payload = JSON.parse(payload); } catch { payload = {}; }
+    }
+
+    const { subject, answers = {}, attemptId, reason = 'EXITED_WITHOUT_SUBMIT' } = payload;
+
+    let score = 0;
+    let total = Object.keys(answers).length;
+    const results = [];
+
+    if (total > 0) {
+      const questionIds = Object.keys(answers);
+      const questions = await SubjectQuestion.find({ _id: { $in: questionIds } });
+      questions.forEach(q => {
+        const userAnswer = answers[q._id.toString()];
+        const isCorrect  = userAnswer === q.correctAnswer;
+        if (isCorrect) score++;
+        results.push({ questionId: q._id, userAnswer, correctAnswer: q.correctAnswer, isCorrect });
+      });
+    }
+
+    // Update existing IN_PROGRESS attempt OR create a new one
+    if (attemptId) {
+      await SubjectAttempt.findByIdAndUpdate(attemptId, {
+        score,
+        total,
+        status:      'AUTO_SUBMITTED',
+        reason,
+        completedAt: new Date(),
+      });
+    } else if (subject) {
+      // Fallback — create a fresh attempt record
+      const attemptsCount = await SubjectAttempt.countDocuments({ userId: req.user._id, subject });
+      const currentBank   = attemptsCount + 1;
+      if (attemptsCount < 4) {
+        const attempt = new SubjectAttempt({
+          userId:      req.user._id,
+          subject,
+          bank:        currentBank,
+          score,
+          total,
+          status:      'AUTO_SUBMITTED',
+          reason,
+          completedAt: new Date(),
+        });
+        await attempt.save();
+      }
+    }
+
+    res.status(200).json({ message: 'Auto-submitted', score, total });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /student/quizzes/:subject → fetch questions for a subject (Randomized, limit 30)
 router.get('/student/quizzes/:subject', [auth, student], async (req, res) => {
   try {
     const { subject } = req.params;
-    
-    // Check how many attempts user already has
-    const attemptsCount = await SubjectAttempt.countDocuments({ userId: req.user._id, subject });
-    console.log(`User ${req.user._id} attempting ${subject}, previous attempts: ${attemptsCount}`);
-    
+
+    // Count only COMPLETED attempts (SUBMITTED or AUTO_SUBMITTED) to determine the bank
+    const attemptsCount = await SubjectAttempt.countDocuments({
+      userId: req.user._id,
+      subject,
+      status: { $in: ['SUBMITTED', 'AUTO_SUBMITTED'] }
+    });
+    console.log(`User ${req.user._id} attempting ${subject}, completed attempts: ${attemptsCount}`);
+
     if (attemptsCount >= 4) {
       return res.status(403).json({ error: 'Maximum attempts reached. You have completed all 4 banks for this subject.' });
     }
 
     const currentBank = attemptsCount + 1;
 
-    // If currentBank is 1, also include questions that don't have a bank assigned yet (legacy questions)
-    const matchQuery = { subject: subject };
+    // If currentBank is 1, also include legacy questions with no bank assigned
+    const matchQuery = { subject };
     if (currentBank === 1) {
-        matchQuery.$or = [
-            { bank: 1 },
-            { bank: { $exists: false } },
-            { bank: null }
-        ];
+      matchQuery.$or = [
+        { bank: 1 },
+        { bank: { $exists: false } },
+        { bank: null }
+      ];
     } else {
-        matchQuery.bank = currentBank;
+      matchQuery.bank = currentBank;
     }
 
-    // Get up to 10 random questions for the subject & correct bank
+    // Get up to 30 random questions for the subject & correct bank
     const questions = await SubjectQuestion.aggregate([
-        { $match: matchQuery },
-        { $sample: { size: 10 } }
+      { $match: matchQuery },
+      { $sample: { size: 30 } }
     ]);
-    
-    // We don't want to send correctAnswer to the client side
+
+    // Strip correct answers before sending to client
     const safeQuestions = questions.map(q => ({
-        _id: q._id,
-        subject: q.subject,
-        question: q.question,
-        options: q.options
+      _id:     q._id,
+      subject: q.subject,
+      question: q.question,
+      options:  q.options
     }));
 
-    res.json({ questions: safeQuestions, attemptId: null });
+    // ── Create IN_PROGRESS attempt immediately so we always have an ID ──
+    const attempt = new SubjectAttempt({
+      userId:    req.user._id,
+      subject,
+      bank:      currentBank,
+      score:     0,
+      total:     safeQuestions.length,
+      status:    'IN_PROGRESS',
+      startTime: new Date(),
+    });
+    await attempt.save();
+
+    res.json({ questions: safeQuestions, attemptId: attempt._id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -105,22 +202,26 @@ router.post('/student/submit', [auth, student], async (req, res) => {
             });
         });
 
-        // Save progress explicitly on the existing attempt
+        // Update existing IN_PROGRESS attempt OR create a new one
         let attempt;
         if (attemptId) {
             attempt = await SubjectAttempt.findById(attemptId);
         }
-        
+
         if (attempt) {
-            attempt.score = score;
-            attempt.total = total;
+            attempt.score       = score;
+            attempt.total       = total;
+            attempt.status      = 'SUBMITTED';
+            attempt.completedAt = new Date();
             await attempt.save();
         } else {
             attempt = new SubjectAttempt({
-                userId: req.user._id,
+                userId:      req.user._id,
                 subject,
                 score,
-                total
+                total,
+                status:      'SUBMITTED',
+                completedAt: new Date(),
             });
             await attempt.save();
         }

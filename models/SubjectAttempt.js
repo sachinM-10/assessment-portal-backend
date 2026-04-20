@@ -13,16 +13,37 @@ const subjectAttemptSchema = new mongoose.Schema({
   },
   score: {
     type: Number,
-    required: true,
+    default: 0,
   },
   total: {
     type: Number,
-    required: true,
+    default: 0,
+  },
+  // ── New fields for attempt lifecycle tracking ──
+  startTime: {
+    type: Date,
+    default: Date.now,
   },
   completedAt: {
     type: Date,
-    default: Date.now
-  }
+  },
+  status: {
+    type: String,
+    enum: ['IN_PROGRESS', 'SUBMITTED', 'AUTO_SUBMITTED'],
+    default: 'IN_PROGRESS',
+  },
+  reason: {
+    type: String,
+    default: null,
+  },
+  mode: {
+    type: String,
+    enum: ['PRACTICE', 'EXAM'],
+    default: 'EXAM',
+  },
+  bank: {
+    type: Number,
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('SubjectAttempt', subjectAttemptSchema);
