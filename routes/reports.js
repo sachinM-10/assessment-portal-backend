@@ -39,23 +39,28 @@ function pdfTable(doc, headers, rows) {
   const rh  = 22;
 
   // Header row
-  doc.rect(40, doc.y, W, rh).fill('#1e1b4b');
+  let startY = doc.y;
+  doc.rect(40, startY, W, rh).fill('#1e1b4b');
   headers.forEach((h, i) => {
     doc.fillColor('#c7d2fe').font('Helvetica-Bold').fontSize(9)
-      .text(h, 40 + i * col + 4, doc.y - rh + 6, { width: col - 8, ellipsis: true });
+      .text(h, 40 + i * col + 4, startY + 6, { width: col - 8, ellipsis: true });
   });
-  doc.y += 2;
+  doc.y = startY + rh;
 
   // Data rows
   rows.forEach((row, ri) => {
-    if (doc.y + rh > doc.page.height - 60) doc.addPage();
+    if (doc.y + rh > doc.page.height - 60) {
+      doc.addPage();
+      doc.y = 60; // margin top for new page
+    }
+    startY = doc.y;
     const fill = ri % 2 === 0 ? '#f8fafc' : '#f1f5f9';
-    doc.rect(40, doc.y, W, rh).fill(fill);
+    doc.rect(40, startY, W, rh).fill(fill);
     row.forEach((cell, ci) => {
       doc.fillColor('#1e293b').font('Helvetica').fontSize(8)
-        .text(String(cell ?? '—'), 40 + ci * col + 4, doc.y - rh + 6, { width: col - 8, ellipsis: true });
+        .text(String(cell ?? '—'), 40 + ci * col + 4, startY + 6, { width: col - 8, ellipsis: true });
     });
-    doc.y += 2;
+    doc.y = startY + rh;
   });
 }
 
