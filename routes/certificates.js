@@ -19,7 +19,7 @@ const { auth, admin, student } = require('../middleware/auth');
 const { sendEmail, certificateEmail } = require('../services/emailService');
 
 const PORTAL_NAME = 'Knowledge Hub — Digital Knowledge Assessment Portal';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://assessment-portal-be.vercel.app';
 
 /* ─── Generate certificate ─────────────────────────────── */
 router.post('/generate', [auth, student], async (req, res) => {

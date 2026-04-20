@@ -112,8 +112,8 @@ function certificateEmail({ studentName, subject, certId, percentage }) {
       </div>
       <p style="font-size:13px;color:#64748b;">
         You can download your certificate from the portal result page or verify it at:<br/>
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:8080'}/verify/${certId}" style="color:#6366f1;">
-          ${process.env.FRONTEND_URL || 'http://localhost:8080'}/verify/${certId}
+        <a href="${process.env.FRONTEND_URL || 'https://assessment-portal-be.vercel.app'}/verify/${certId}" style="color:#6366f1;">
+          ${process.env.FRONTEND_URL || 'https://assessment-portal-be.vercel.app'}/verify/${certId}
         </a>
       </p>
       <p>Keep up the great work!<br/><strong>Knowledge Hub Team</strong></p>
