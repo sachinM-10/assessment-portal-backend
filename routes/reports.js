@@ -69,25 +69,50 @@ function excelStyle(ws) {
 /* ─── Results Report ────────────────────────────────────── */
 router.get('/results', [auth, admin], async (req, res) => {
   try {
-    const { format = 'pdf', subject } = req.query;
+    const { format = 'pdf', subject, startDate, endDate, passFail } = req.query;
     const filter = { status: { $in: ['SUBMITTED', 'AUTO_SUBMITTED'] } };
     if (subject) filter.subject = subject;
+    
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        let end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
 
-    const attempts = await SubjectAttempt.find(filter)
-      .populate('userId', 'name email')
+    let attempts = await SubjectAttempt.find(filter)
+      .populate('userId', 'name email username')
       .sort({ createdAt: -1 })
       .lean();
 
-    const rows = attempts.map(a => [
-      a.userId?.name || a.userId?.email || 'Unknown',
-      a.subject,
-      `${a.score}/${a.total}`,
-      `${Math.round((a.score / (a.total || 1)) * 100)}%`,
-      a.status,
-      new Date(a.createdAt).toLocaleDateString('en-IN'),
-    ]);
+    // Filter by passFail if provided (assume >= 40% is Pass)
+    if (passFail) {
+      attempts = attempts.filter(a => {
+        const percentage = Math.round((a.score / (a.total || 1)) * 100);
+        const isPass = percentage >= 40;
+        return passFail.toLowerCase() === 'passed' ? isPass : !isPass;
+      });
+    }
 
-    const headers = ['Student', 'Subject', 'Score', 'Percentage', 'Status', 'Date'];
+    const rows = attempts.map(a => {
+      const percentage = Math.round((a.score / (a.total || 1)) * 100);
+      const isPass = percentage >= 40 ? 'Pass' : 'Fail';
+      return [
+        a.userId?.name || a.userId?.username || 'Unknown',
+        a.userId?.email || '-', // Using email as Register Number for now
+        a.subject,
+        `${a.score}/${a.total}`,
+        `${percentage}%`,
+        new Date(a.createdAt).toLocaleDateString('en-IN'),
+        isPass
+      ];
+    });
+
+    const headers = ['Student Name', 'Reg Number', 'Exam Name', 'Score', 'Percentage', 'Attempt Date', 'Pass/Fail'];
+    const title = subject ? `${subject} Exam Results Report` : 'Student Results Report';
 
     if (format === 'excel') {
       const wb = new ExcelJS.Workbook();
@@ -106,7 +131,7 @@ router.get('/results', [auth, admin], async (req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename="Results_Report.pdf"');
     const doc = new PDFDocument({ margin: 40 });
     doc.pipe(res);
-    pdfHeader(doc, 'Student Results Report');
+    pdfHeader(doc, title);
     pdfTable(doc, headers, rows);
     doc.end();
 

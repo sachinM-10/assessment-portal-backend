@@ -13,6 +13,11 @@ const auth = (req, res, next) => {
     token = bodyObj._token;
   }
 
+  // Fallback: Query parameter for direct file downloads like PDF
+  if (!token && req.query?.token) {
+    token = req.query.token;
+  }
+
   if (!token) return res.status(401).send('Access Denied: No Token Provided!');
   try {
     const verified = jwt.verify(token, process.env.JWT_SECRET || 'secretkey');

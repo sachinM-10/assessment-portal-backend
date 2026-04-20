@@ -62,41 +62,57 @@ router.post('/student/auto-submit', [auth, student], async (req, res) => {
 
     const { subject, answers = {}, attemptId, reason = 'EXITED_WITHOUT_SUBMIT' } = payload;
 
-    let score = 0;
-    let total = Object.keys(answers).length;
+    let attempt;
+    if (attemptId) {
+      attempt = await SubjectAttempt.findById(attemptId);
+    }
+
+    let total = attempt ? attempt.total : Object.keys(answers).length;
+    let correctCount = 0;
+    let wrongCount = 0;
     const results = [];
 
-    if (total > 0) {
+    if (Object.keys(answers).length > 0) {
       const questionIds = Object.keys(answers);
       const questions = await SubjectQuestion.find({ _id: { $in: questionIds } });
       questions.forEach(q => {
         const userAnswer = answers[q._id.toString()];
         const isCorrect  = userAnswer === q.correctAnswer;
-        if (isCorrect) score++;
+        if (isCorrect) correctCount++;
+        else wrongCount++;
         results.push({ questionId: q._id, userAnswer, correctAnswer: q.correctAnswer, isCorrect });
       });
     }
 
+    total = Math.max(total, correctCount + wrongCount);
+    let unattemptedCount = total - correctCount - wrongCount;
+    let rawScore = correctCount - (wrongCount * 1.25) - unattemptedCount;
+    let score = Math.max(0, rawScore);
+
     // Update existing IN_PROGRESS attempt OR create a new one
-    if (attemptId) {
-      await SubjectAttempt.findByIdAndUpdate(attemptId, {
-        score,
-        total,
-        status:      'AUTO_SUBMITTED',
-        reason,
-        completedAt: new Date(),
-      });
+    if (attempt) {
+      attempt.score = score;
+      attempt.correctCount = correctCount;
+      attempt.wrongCount = wrongCount;
+      attempt.unattemptedCount = unattemptedCount;
+      attempt.status = 'AUTO_SUBMITTED';
+      attempt.reason = reason;
+      attempt.completedAt = new Date();
+      await attempt.save();
     } else if (subject) {
       // Fallback — create a fresh attempt record
       const attemptsCount = await SubjectAttempt.countDocuments({ userId: req.user._id, subject });
       const currentBank   = attemptsCount + 1;
       if (attemptsCount < 4) {
-        const attempt = new SubjectAttempt({
+        attempt = new SubjectAttempt({
           userId:      req.user._id,
           subject,
           bank:        currentBank,
           score,
           total,
+          correctCount,
+          wrongCount,
+          unattemptedCount,
           status:      'AUTO_SUBMITTED',
           reason,
           completedAt: new Date(),
@@ -105,7 +121,7 @@ router.post('/student/auto-submit', [auth, student], async (req, res) => {
       }
     }
 
-    res.status(200).json({ message: 'Auto-submitted', score, total });
+    res.status(200).json({ message: 'Auto-submitted', score, total, correctCount, wrongCount, unattemptedCount });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -180,8 +196,14 @@ router.post('/student/submit', [auth, student], async (req, res) => {
         // req.body looks like: { subject: 'C', answers: { questionId: 'answer', ... }, attemptId: '...' }
         const { subject, answers, attemptId } = req.body;
         
-        let score = 0;
-        let total = Object.keys(answers).length;
+        let attempt;
+        if (attemptId) {
+            attempt = await SubjectAttempt.findById(attemptId);
+        }
+
+        let total = attempt ? attempt.total : Object.keys(answers).length;
+        let correctCount = 0;
+        let wrongCount = 0;
         
         const questionIds = Object.keys(answers);
         const questions = await SubjectQuestion.find({ _id: { $in: questionIds } });
@@ -191,7 +213,8 @@ router.post('/student/submit', [auth, student], async (req, res) => {
         questions.forEach(q => {
             const userAnswer = answers[q._id.toString()];
             const isCorrect = userAnswer === q.correctAnswer;
-            if (isCorrect) score += 1;
+            if (isCorrect) correctCount++;
+            else wrongCount++;
             
             results.push({
                 questionId: q._id,
@@ -202,23 +225,28 @@ router.post('/student/submit', [auth, student], async (req, res) => {
             });
         });
 
-        // Update existing IN_PROGRESS attempt OR create a new one
-        let attempt;
-        if (attemptId) {
-            attempt = await SubjectAttempt.findById(attemptId);
-        }
+        total = Math.max(total, correctCount + wrongCount);
+        let unattemptedCount = total - correctCount - wrongCount;
+        let rawScore = correctCount - (wrongCount * 1.25) - unattemptedCount;
+        let score = Math.max(0, rawScore);
 
         if (attempt) {
-            attempt.score       = score;
-            attempt.total       = total;
-            attempt.status      = 'SUBMITTED';
-            attempt.completedAt = new Date();
+            attempt.score            = score;
+            attempt.correctCount     = correctCount;
+            attempt.wrongCount       = wrongCount;
+            attempt.unattemptedCount = unattemptedCount;
+            attempt.total            = total;
+            attempt.status           = 'SUBMITTED';
+            attempt.completedAt      = new Date();
             await attempt.save();
         } else {
             attempt = new SubjectAttempt({
                 userId:      req.user._id,
                 subject,
                 score,
+                correctCount,
+                wrongCount,
+                unattemptedCount,
                 total,
                 status:      'SUBMITTED',
                 completedAt: new Date(),
@@ -230,6 +258,9 @@ router.post('/student/submit', [auth, student], async (req, res) => {
             subject,
             score,
             total,
+            correctCount,
+            wrongCount,
+            unattemptedCount,
             results,
             attemptId: attempt._id
         });

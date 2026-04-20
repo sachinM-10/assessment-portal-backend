@@ -34,6 +34,9 @@ app.use('/api/certificates', certificateRoutes);
 const reportRoutes       = require('./routes/reports');
 app.use('/api/reports', reportRoutes);
 
+const feedbackRoutes = require('./routes/feedback');
+app.use('/api/feedback', feedbackRoutes);
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

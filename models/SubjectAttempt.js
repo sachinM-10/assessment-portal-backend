@@ -19,6 +19,18 @@ const subjectAttemptSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  correctCount: {
+    type: Number,
+    default: 0,
+  },
+  wrongCount: {
+    type: Number,
+    default: 0,
+  },
+  unattemptedCount: {
+    type: Number,
+    default: 0,
+  },
   // ── New fields for attempt lifecycle tracking ──
   startTime: {
     type: Date,
